@@ -123,12 +123,73 @@ body{
 }
 .tab.active{color:var(--text);border-bottom-color:var(--live);}
 
-/* ---------- League filter chips ---------- */
-.league-filter{
+/* ---------- League picker rack (single-select, scroll/drag/edge-hover) ---------- */
+.league-rack-wrap{
+  position:relative;
   max-width:1100px;margin:0 auto;
-  display:flex;gap:8px;flex-wrap:wrap;
   padding:14px 16px 0;
 }
+.league-rack{
+  display:flex;
+  gap:10px;
+  overflow-x:auto;
+  overscroll-behavior-x:contain;
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  padding:2px 2px 8px;
+  cursor:grab;
+  scroll-snap-type:x proximity;
+}
+.league-rack::-webkit-scrollbar{display:none;}
+.league-rack.dragging{cursor:grabbing;scroll-behavior:auto;user-select:none;}
+.league-card{
+  flex:0 0 auto;
+  display:flex;align-items:center;gap:8px;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:7px 13px 7px 8px;
+  cursor:pointer;
+  scroll-snap-align:start;
+  -webkit-user-select:none;user-select:none;
+  transition:border-color .15s, background .15s;
+}
+.league-card:hover{border-color:#3A4256;}
+.league-card.active{
+  border-color:var(--gold);
+  background:var(--surface-2);
+  box-shadow:inset 0 0 0 1px var(--gold);
+}
+.league-icon{
+  width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  flex:0 0 auto;
+}
+.league-icon svg{width:17px;height:17px;display:block;}
+.league-card-text{display:flex;flex-direction:column;line-height:1.2;text-align:left;}
+.league-card-name{font-size:12.5px;font-weight:800;letter-spacing:.02em;color:var(--text);white-space:nowrap;}
+.league-card-desc{font-size:10px;color:var(--text-muted);white-space:nowrap;font-family:'JetBrains Mono',monospace;}
+.league-rack-edge{
+  position:absolute;top:2px;bottom:10px;width:36px;
+  display:flex;align-items:center;
+  font-size:20px;color:var(--text);
+  pointer-events:auto;
+  z-index:2;
+  opacity:0;transition:opacity .15s;
+}
+.league-rack-edge.left{
+  left:16px;justify-content:flex-start;
+  background:linear-gradient(90deg, var(--bg) 30%, transparent);
+}
+.league-rack-edge.right{
+  right:16px;justify-content:flex-end;
+  background:linear-gradient(270deg, var(--bg) 30%, transparent);
+}
+.league-rack-wrap.can-left .league-rack-edge.left{opacity:1;}
+.league-rack-wrap.can-right .league-rack-edge.right{opacity:1;}
+
+/* ---------- Legacy chip style (still used by favorite-team league picker) ---------- */
 .chip{
   background:var(--surface);
   border:1px solid var(--line);
@@ -286,7 +347,7 @@ main{max-width:1100px;margin:0 auto;padding:14px 16px 60px;}
 }
 
 /* Focus visibility for accessibility */
-button:focus-visible, .game-card:focus-visible, .chip:focus-visible{
+button:focus-visible, .game-card:focus-visible, .chip:focus-visible, .league-card:focus-visible{
   outline:2px solid var(--gold);outline-offset:2px;
 }
 
@@ -325,7 +386,11 @@ button:focus-visible, .game-card:focus-visible, .chip:focus-visible{
   <button class="tab" data-tab="history">History</button>
 </nav>
 
-<div class="league-filter" id="leagueFilter"></div>
+<div class="league-rack-wrap" id="leagueRackWrap">
+  <div class="league-rack-edge left" id="edgeLeft" aria-hidden="true">‹</div>
+  <div class="league-rack" id="leagueRack"></div>
+  <div class="league-rack-edge right" id="edgeRight" aria-hidden="true">›</div>
+</div>
 
 <main id="main">
   <div id="statusLine" class="status-line"></div>
@@ -377,33 +442,47 @@ const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 
 // Curated set of leagues to pull. Add/remove entries to change coverage.
 // (league slugs verified against ESPN's public site.api.espn.com routes)
+// icon/desc/color drive the league-picker rack — icons are generic custom
+// glyphs (not official league marks, which are trademarked).
 const LEAGUES = [
   // --- Major North American leagues ---
-  { id: 'nfl',      sport: 'football',   league: 'nfl',                    name: 'NFL',              short: 'NFL'  },
-  { id: 'nba',      sport: 'basketball', league: 'nba',                    name: 'NBA',              short: 'NBA'  },
-  { id: 'mlb',      sport: 'baseball',   league: 'mlb',                    name: 'MLB',              short: 'MLB'  },
-  { id: 'nhl',      sport: 'hockey',     league: 'nhl',                    name: 'NHL',              short: 'NHL'  },
-  { id: 'wnba',     sport: 'basketball', league: 'wnba',                   name: 'WNBA',             short: 'WNBA' },
+  { id: 'nfl',      sport: 'football',   league: 'nfl',                    name: 'NFL',              short: 'NFL',    desc: 'American Football',           icon: 'football',   color: '#3DDC84' },
+  { id: 'nba',      sport: 'basketball', league: 'nba',                    name: 'NBA',              short: 'NBA',    desc: 'Basketball',                   icon: 'basketball', color: '#FF9F45' },
+  { id: 'mlb',      sport: 'baseball',   league: 'mlb',                    name: 'MLB',              short: 'MLB',    desc: 'Baseball',                     icon: 'baseball',   color: '#FF5C5C' },
+  { id: 'nhl',      sport: 'hockey',     league: 'nhl',                    name: 'NHL',              short: 'NHL',    desc: 'Ice Hockey',                   icon: 'hockey',     color: '#5AC8FA' },
+  { id: 'wnba',     sport: 'basketball', league: 'wnba',                   name: 'WNBA',             short: 'WNBA',   desc: "Women's Basketball",           icon: 'basketball', color: '#FF9F45' },
   // --- Soccer ---
-  { id: 'eng.1',    sport: 'soccer',     league: 'eng.1',                  name: 'Premier League',   short: 'EPL'  },
-  { id: 'uefa.champions', sport: 'soccer', league: 'uefa.champions',       name: 'Champions League', short: 'UCL'  },
-  { id: 'esp.1',    sport: 'soccer',     league: 'esp.1',                  name: 'La Liga',          short: 'LALIGA' },
-  { id: 'usa.1',    sport: 'soccer',     league: 'usa.1',                  name: 'MLS',              short: 'MLS'  },
+  { id: 'eng.1',    sport: 'soccer',     league: 'eng.1',                  name: 'Premier League',   short: 'EPL',    desc: 'English Premier League',       icon: 'soccer',     color: '#34D8C7' },
+  { id: 'uefa.champions', sport: 'soccer', league: 'uefa.champions',       name: 'Champions League', short: 'UCL',    desc: 'UEFA Champions League',        icon: 'soccer',     color: '#34D8C7' },
+  { id: 'esp.1',    sport: 'soccer',     league: 'esp.1',                  name: 'La Liga',          short: 'LALIGA', desc: 'Spanish La Liga',              icon: 'soccer',     color: '#34D8C7' },
+  { id: 'usa.1',    sport: 'soccer',     league: 'usa.1',                  name: 'MLS',              short: 'MLS',    desc: 'Major League Soccer (US)',     icon: 'soccer',     color: '#34D8C7' },
   // --- College ---
-  { id: 'mens-college-basketball', sport: 'basketball', league: 'mens-college-basketball', name: 'NCAA Basketball (M)', short: 'NCAAB' },
+  { id: 'mens-college-basketball', sport: 'basketball', league: 'mens-college-basketball', name: 'NCAA Basketball (M)', short: 'NCAAB', desc: "NCAA Men's Basketball", icon: 'basketball', color: '#FF9F45' },
   // --- Cricket (ESPN's cricket scoreboard is series-based; these slugs
   //     only return events while that series/tournament is actually live) ---
-  { id: 'cricket-ipl', sport: 'cricket', league: 'ipl',                    name: 'Cricket — IPL',    short: 'IPL'  },
-  { id: 'cricket-t20wc', sport: 'cricket', league: 'icc.t20',              name: 'Cricket — T20 World Cup', short: 'T20 WC' },
+  { id: 'cricket-ipl', sport: 'cricket', league: 'ipl',                    name: 'Cricket — IPL',    short: 'IPL',    desc: 'Indian Premier League',        icon: 'cricket',    color: '#B98CFF' },
+  { id: 'cricket-t20wc', sport: 'cricket', league: 'icc.t20',              name: 'Cricket — T20 World Cup', short: 'T20 WC', desc: 'ICC T20 World Cup',    icon: 'cricket',    color: '#B98CFF' },
   // --- Hockey (ice) at the Olympics ---
-  { id: 'oly-hockey-m', sport: 'hockey', league: 'mens-olympic-hockey',    name: "Olympics — Men's Hockey", short: 'OLY HKY (M)' },
-  { id: 'oly-hockey-w', sport: 'hockey', league: 'womens-olympic-hockey',  name: "Olympics — Women's Hockey", short: 'OLY HKY (W)' },
+  { id: 'oly-hockey-m', sport: 'hockey', league: 'mens-olympic-hockey',    name: "Olympics — Men's Hockey", short: 'OLY HKY (M)', desc: 'Olympic Ice Hockey (M)', icon: 'trophy', color: '#E8B84B' },
+  { id: 'oly-hockey-w', sport: 'hockey', league: 'womens-olympic-hockey',  name: "Olympics — Women's Hockey", short: 'OLY HKY (W)', desc: 'Olympic Ice Hockey (W)', icon: 'trophy', color: '#E8B84B' },
   // --- Olympics — basketball & soccer (only populated during the Games) ---
-  { id: 'oly-bball-m', sport: 'basketball', league: 'mens-olympics-basketball', name: "Olympics — Men's Basketball", short: 'OLY BBALL (M)' },
-  { id: 'oly-bball-w', sport: 'basketball', league: 'womens-olympics-basketball', name: "Olympics — Women's Basketball", short: 'OLY BBALL (W)' },
-  { id: 'oly-soccer-m', sport: 'soccer', league: 'fifa.olympics',          name: "Olympics — Men's Soccer", short: 'OLY SOCCER (M)' },
-  { id: 'oly-soccer-w', sport: 'soccer', league: 'fifa.w.olympics',        name: "Olympics — Women's Soccer", short: 'OLY SOCCER (W)' },
+  { id: 'oly-bball-m', sport: 'basketball', league: 'mens-olympics-basketball', name: "Olympics — Men's Basketball", short: 'OLY BBALL (M)', desc: 'Olympic Basketball (M)', icon: 'trophy', color: '#E8B84B' },
+  { id: 'oly-bball-w', sport: 'basketball', league: 'womens-olympics-basketball', name: "Olympics — Women's Basketball", short: 'OLY BBALL (W)', desc: 'Olympic Basketball (W)', icon: 'trophy', color: '#E8B84B' },
+  { id: 'oly-soccer-m', sport: 'soccer', league: 'fifa.olympics',          name: "Olympics — Men's Soccer", short: 'OLY SOCCER (M)', desc: 'Olympic Soccer (M)', icon: 'trophy', color: '#E8B84B' },
+  { id: 'oly-soccer-w', sport: 'soccer', league: 'fifa.w.olympics',        name: "Olympics — Women's Soccer", short: 'OLY SOCCER (W)', desc: 'Olympic Soccer (W)', icon: 'trophy', color: '#E8B84B' },
 ];
+
+// Small generic sport glyphs (NOT official league/Olympic marks — those are
+// trademarked). Single-color, 24x24 viewBox, sized via CSS.
+const SPORT_ICONS = {
+  football: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><ellipse cx="12" cy="12" rx="9" ry="5.2"/><line x1="4.2" y1="12" x2="19.8" y2="12"/><line x1="9" y1="10" x2="9" y2="14"/><line x1="12" y1="9.3" x2="12" y2="14.7"/><line x1="15" y1="10" x2="15" y2="14"/></svg>',
+  basketball: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3v18M5.8 5.8c2.8 3 2.8 9.4 0 12.4M18.2 5.8c-2.8 3-2.8 9.4 0 12.4"/></svg>',
+  baseball: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M6.3 5.3c2.3 2.3 2.3 11.1 0 13.4M17.7 5.3c-2.3 2.3-2.3 11.1 0 13.4" stroke-dasharray="1.6 1.8"/></svg>',
+  hockey: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><ellipse cx="12" cy="14.5" rx="8" ry="2.8" fill="currentColor" fill-opacity="0.18"/><ellipse cx="12" cy="14.5" rx="8" ry="2.8"/><path d="M8.5 8.5 12 5l2 2-3 3" stroke-opacity="0.7"/></svg>',
+  soccer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.2l3 2.2-1.1 3.6H10.1L9 9.4z"/><path d="M12 7.2V4.3M15 9.4l2.9-1.1M9 9.4l-2.9-1.1M13.9 12.6l1.8 2.7h3M10.1 12.6l-1.8 2.7h-3"/></svg>',
+  cricket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="18.5" x2="13.5" y2="11"/><rect x="12.3" y="4.6" width="3" height="7.4" rx="1.2" transform="rotate(45 13.8 8.3)"/><circle cx="18.3" cy="18.3" r="2.1"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.3h10v3.8a5 5 0 0 1-10 0V3.3z"/><path d="M7 4.4H4.3a3 3 0 0 0 3 4.6M17 4.4h2.7a3 3 0 0 1-3 4.6"/><path d="M12 11.7v3.6"/><path d="M9 20h6"/><path d="M9.8 20c0-1.7.7-2.3 2.2-2.8 1.5-.5 2.2-1.1 2.2-2.8"/></svg>',
+};
 
 function leagueById(id) {
   return LEAGUES.find(l => l.id === id);
@@ -522,6 +601,18 @@ async function getAllLeaguesForDays(dayOffsets) {
     return fmtDate(d);
   });
   const batches = await Promise.all(dateStrs.map(ds => getAllLeaguesScoreboard(ds)));
+  return batches.flat();
+}
+
+/** Pull a window of dates for a SINGLE league (used by the league-rack single-select filter). */
+async function getLeagueForDays(leagueId, dayOffsets) {
+  const today = new Date();
+  const dateStrs = dayOffsets.map(off => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + off);
+    return fmtDate(d);
+  });
+  const batches = await Promise.all(dateStrs.map(ds => getLeagueScoreboard(leagueId, ds)));
   return batches.flat();
 }
 
@@ -661,30 +752,124 @@ document.addEventListener('DOMContentLoaded', () => {
 
 const state = {
   tab: 'live',
-  activeLeagues: new Set(LEAGUES.map(l => l.id)), // all on by default
+  selectedLeague: 'nfl', // single-select — only this league's data is ever fetched/shown
   events: [],
   loading: false,
 };
 
 let refreshTimer = null;
 
-// ---------------------------------------------------------------- chips
-function renderLeagueChips() {
-  const wrap = document.getElementById('leagueFilter');
-  wrap.innerHTML = '';
-  LEAGUES.forEach(lg => {
-    const chip = document.createElement('button');
-    chip.className = 'chip' + (state.activeLeagues.has(lg.id) ? ' active' : '');
-    chip.textContent = lg.short;
-    chip.setAttribute('aria-pressed', state.activeLeagues.has(lg.id));
-    chip.addEventListener('click', () => {
-      if (state.activeLeagues.has(lg.id)) state.activeLeagues.delete(lg.id);
-      else state.activeLeagues.add(lg.id);
-      renderLeagueChips();
-      renderGrid();
+// ---------------------------------------------------------------- league rack
+let rackBuilt = false;
+
+function renderLeagueRack() {
+  const rack = document.getElementById('leagueRack');
+  if (!rackBuilt) {
+    rack.innerHTML = '';
+    LEAGUES.forEach(lg => {
+      const btn = document.createElement('button');
+      btn.className = 'league-card';
+      btn.type = 'button';
+      btn.dataset.league = lg.id;
+      btn.setAttribute('role', 'radio');
+      btn.innerHTML = `
+        <span class="league-icon" style="color:${lg.color};background:${lg.color}22;">${SPORT_ICONS[lg.icon] || ''}</span>
+        <span class="league-card-text">
+          <span class="league-card-name">${escapeHtml(lg.short)}</span>
+          <span class="league-card-desc">${escapeHtml(lg.desc || '')}</span>
+        </span>`;
+      rack.appendChild(btn);
     });
-    wrap.appendChild(chip);
+    rackBuilt = true;
+    setupRackInteractions(rack);
+  }
+  updateRackActiveState();
+}
+
+function updateRackActiveState() {
+  document.querySelectorAll('.league-card').forEach(el => {
+    const active = el.dataset.league === state.selectedLeague;
+    el.classList.toggle('active', active);
+    el.setAttribute('aria-checked', active);
   });
+}
+
+function selectLeague(id) {
+  if (state.selectedLeague === id) return;
+  state.selectedLeague = id;
+  updateRackActiveState();
+  loadTab();
+}
+
+function setupRackInteractions(rack) {
+  const wrap = document.getElementById('leagueRackWrap');
+  const edgeLeft = document.getElementById('edgeLeft');
+  const edgeRight = document.getElementById('edgeRight');
+
+  // --- click to select (ignored if it was actually a drag) ---
+  const drag = { isDown: false, moved: false, startX: 0, startScrollLeft: 0, justDragged: false };
+
+  rack.addEventListener('click', (e) => {
+    if (drag.justDragged) { drag.justDragged = false; return; }
+    const card = e.target.closest('.league-card');
+    if (card) selectLeague(card.dataset.league);
+  });
+
+  // --- mouse drag-to-scroll (desktop; touch already scrolls natively) ---
+  rack.addEventListener('mousedown', (e) => {
+    drag.isDown = true;
+    drag.moved = false;
+    drag.startX = e.pageX;
+    drag.startScrollLeft = rack.scrollLeft;
+    rack.classList.add('dragging');
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag.isDown) return;
+    const dx = e.pageX - drag.startX;
+    if (Math.abs(dx) > 4) drag.moved = true;
+    if (drag.moved) {
+      e.preventDefault();
+      rack.scrollLeft = drag.startScrollLeft - dx;
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (!drag.isDown) return;
+    drag.isDown = false;
+    rack.classList.remove('dragging');
+    if (drag.moved) drag.justDragged = true;
+  });
+
+  // --- vertical wheel/trackpad scroll translated to horizontal ---
+  rack.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return; // already horizontal, let it be
+    rack.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
+
+  // --- hover an edge to auto-scroll continuously ---
+  let autoScrollId = null;
+  function startAutoScroll(direction) {
+    stopAutoScroll();
+    autoScrollId = setInterval(() => { rack.scrollLeft += direction * 12; }, 16);
+  }
+  function stopAutoScroll() {
+    if (autoScrollId) { clearInterval(autoScrollId); autoScrollId = null; }
+  }
+  edgeLeft.addEventListener('mouseenter', () => startAutoScroll(-1));
+  edgeLeft.addEventListener('mouseleave', stopAutoScroll);
+  edgeRight.addEventListener('mouseenter', () => startAutoScroll(1));
+  edgeRight.addEventListener('mouseleave', stopAutoScroll);
+
+  // --- fade edge affordances in/out based on scroll position ---
+  function updateEdgeVisibility() {
+    const atStart = rack.scrollLeft <= 2;
+    const atEnd = rack.scrollLeft + rack.clientWidth >= rack.scrollWidth - 2;
+    wrap.classList.toggle('can-left', !atStart);
+    wrap.classList.toggle('can-right', !atEnd);
+  }
+  rack.addEventListener('scroll', updateEdgeVisibility);
+  window.addEventListener('resize', updateEdgeVisibility);
+  updateEdgeVisibility();
 }
 
 // ---------------------------------------------------------------- tabs
@@ -705,29 +890,30 @@ async function loadTab() {
   statusLine.textContent = 'Loading…';
   grid.innerHTML = '';
 
+  const lgId = state.selectedLeague;
+
   try {
     if (state.tab === 'live') {
-      state.events = await getAllLeaguesScoreboard(); // today, all leagues
-      // keep only actually-live, but also show today's pre/post as context is nice — spec says Live tab = live games
-      state.events = state.events.filter(e => e.state === 'in');
+      state.events = (await getLeagueScoreboard(lgId)).filter(e => e.state === 'in');
       refreshTimer = setInterval(async () => {
+        if (state.selectedLeague !== lgId || state.tab !== 'live') return; // stale timer guard
         try {
-          const fresh = await getAllLeaguesScoreboard();
-          state.events = fresh.filter(e => e.state === 'in');
+          state.events = (await getLeagueScoreboard(lgId)).filter(e => e.state === 'in');
           renderGrid();
           renderFavoriteBar();
         } catch (_) { /* silent retry next tick */ }
       }, 20000);
     } else if (state.tab === 'upcoming') {
-      state.events = await getAllLeaguesForDays([0, 1, 2, 3, 4, 5, 6]);
+      state.events = await getLeagueForDays(lgId, [0, 1, 2, 3, 4, 5, 6]);
       state.events = state.events.filter(e => e.state === 'pre');
       state.events.sort((a, b) => new Date(a.date) - new Date(b.date));
     } else if (state.tab === 'history') {
-      state.events = await getAllLeaguesForDays([0, -1, -2, -3, -4, -5, -6]);
+      state.events = await getLeagueForDays(lgId, [0, -1, -2, -3, -4, -5, -6]);
       state.events = state.events.filter(e => e.state === 'post');
       state.events.sort((a, b) => new Date(b.date) - new Date(a.date)); // latest first
     }
-    statusLine.textContent = `Last updated ${new Date().toLocaleTimeString()}`;
+    const lgName = (leagueById(lgId) || {}).name || lgId;
+    statusLine.textContent = `${lgName} · last updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {
     statusLine.textContent = 'Could not load data — check your connection and try again.';
   }
@@ -739,21 +925,21 @@ async function loadTab() {
 function renderGrid() {
   const grid = document.getElementById('gameGrid');
   const fav = getFavoriteTeam();
-  const filtered = state.events.filter(e => state.activeLeagues.has(e.leagueId));
 
-  if (!filtered.length) {
+  if (!state.events.length) {
     grid.innerHTML = `<div class="empty-state">${emptyMessage()}</div>`;
     return;
   }
 
   grid.innerHTML = '';
-  filtered.forEach(ev => grid.appendChild(buildGameCard(ev, fav)));
+  state.events.forEach(ev => grid.appendChild(buildGameCard(ev, fav)));
 }
 
 function emptyMessage() {
-  if (state.tab === 'live') return 'No games are live right now. Check Upcoming for what\'s next.';
-  if (state.tab === 'upcoming') return 'No upcoming games found for the selected leagues.';
-  return 'No recent results found for the selected leagues.';
+  const lgName = (leagueById(state.selectedLeague) || {}).name || 'this league';
+  if (state.tab === 'live') return `No ${lgName} games are live right now. Check Upcoming for what's next.`;
+  if (state.tab === 'upcoming') return `No upcoming ${lgName} games found in the next 7 days.`;
+  return `No recent ${lgName} results found in the last 7 days.`;
 }
 
 function buildGameCard(ev, fav) {
@@ -1005,7 +1191,7 @@ document.getElementById('teamSearch').addEventListener('input', () => {
 
 // ---------------------------------------------------------------- init
 document.addEventListener('DOMContentLoaded', () => {
-  renderLeagueChips();
+  renderLeagueRack();
   renderFavoriteBar();
   loadTab();
 });
