@@ -376,16 +376,33 @@ button:focus-visible, .game-card:focus-visible, .chip:focus-visible{
 const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 
 // Curated set of leagues to pull. Add/remove entries to change coverage.
+// (league slugs verified against ESPN's public site.api.espn.com routes)
 const LEAGUES = [
+  // --- Major North American leagues ---
   { id: 'nfl',      sport: 'football',   league: 'nfl',                    name: 'NFL',              short: 'NFL'  },
   { id: 'nba',      sport: 'basketball', league: 'nba',                    name: 'NBA',              short: 'NBA'  },
   { id: 'mlb',      sport: 'baseball',   league: 'mlb',                    name: 'MLB',              short: 'MLB'  },
   { id: 'nhl',      sport: 'hockey',     league: 'nhl',                    name: 'NHL',              short: 'NHL'  },
+  { id: 'wnba',     sport: 'basketball', league: 'wnba',                   name: 'WNBA',             short: 'WNBA' },
+  // --- Soccer ---
   { id: 'eng.1',    sport: 'soccer',     league: 'eng.1',                  name: 'Premier League',   short: 'EPL'  },
   { id: 'uefa.champions', sport: 'soccer', league: 'uefa.champions',       name: 'Champions League', short: 'UCL'  },
   { id: 'esp.1',    sport: 'soccer',     league: 'esp.1',                  name: 'La Liga',          short: 'LALIGA' },
   { id: 'usa.1',    sport: 'soccer',     league: 'usa.1',                  name: 'MLS',              short: 'MLS'  },
+  // --- College ---
   { id: 'mens-college-basketball', sport: 'basketball', league: 'mens-college-basketball', name: 'NCAA Basketball (M)', short: 'NCAAB' },
+  // --- Cricket (ESPN's cricket scoreboard is series-based; these slugs
+  //     only return events while that series/tournament is actually live) ---
+  { id: 'cricket-ipl', sport: 'cricket', league: 'ipl',                    name: 'Cricket — IPL',    short: 'IPL'  },
+  { id: 'cricket-t20wc', sport: 'cricket', league: 'icc.t20',              name: 'Cricket — T20 World Cup', short: 'T20 WC' },
+  // --- Hockey (ice) at the Olympics ---
+  { id: 'oly-hockey-m', sport: 'hockey', league: 'mens-olympic-hockey',    name: "Olympics — Men's Hockey", short: 'OLY HKY (M)' },
+  { id: 'oly-hockey-w', sport: 'hockey', league: 'womens-olympic-hockey',  name: "Olympics — Women's Hockey", short: 'OLY HKY (W)' },
+  // --- Olympics — basketball & soccer (only populated during the Games) ---
+  { id: 'oly-bball-m', sport: 'basketball', league: 'mens-olympics-basketball', name: "Olympics — Men's Basketball", short: 'OLY BBALL (M)' },
+  { id: 'oly-bball-w', sport: 'basketball', league: 'womens-olympics-basketball', name: "Olympics — Women's Basketball", short: 'OLY BBALL (W)' },
+  { id: 'oly-soccer-m', sport: 'soccer', league: 'fifa.olympics',          name: "Olympics — Men's Soccer", short: 'OLY SOCCER (M)' },
+  { id: 'oly-soccer-w', sport: 'soccer', league: 'fifa.w.olympics',        name: "Olympics — Women's Soccer", short: 'OLY SOCCER (W)' },
 ];
 
 function leagueById(id) {
@@ -412,10 +429,25 @@ function teamScheduleUrl(lg, teamId, season) {
   return url;
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`Request failed (${res.status}): ${url}`);
-  return res.json();
+async function fetchJson(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 12000);
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    if (!res.ok) throw new Error(`ESPN returned ${res.status} ${res.statusText}`);
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out — ESPN may be slow or the request is being blocked (try disabling ad blockers/privacy extensions for this site).');
+    }
+    // A generic "Failed to fetch" almost always means CORS, an offline
+    // connection, or a browser extension blocking the request.
+    throw new Error(err.message === 'Failed to fetch'
+      ? 'Could not reach ESPN — check your connection, or an ad blocker/privacy extension may be blocking site.api.espn.com.'
+      : err.message);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function fmtDate(d) {
@@ -913,9 +945,19 @@ async function loadFavTeams() {
     if (!favTeamsCache[favSelectedLeague]) {
       favTeamsCache[favSelectedLeague] = await getLeagueTeams(favSelectedLeague);
     }
+    if (!favTeamsCache[favSelectedLeague].length) {
+      results.innerHTML = '<div class="loader">ESPN returned no teams for this league.</div>';
+      return;
+    }
     renderTeamResults(favTeamsCache[favSelectedLeague]);
   } catch (e) {
-    results.innerHTML = '<div class="loader">Could not load teams.</div>';
+    console.error('Failed to load teams for', favSelectedLeague, e);
+    results.innerHTML = `
+      <div class="loader">Couldn't load teams: ${escapeHtml(e.message || 'unknown error')}</div>
+      <button class="btn-ghost" id="retryTeamsBtn" style="margin:10px auto;display:block;">Try again</button>
+    `;
+    const retryBtn = document.getElementById('retryTeamsBtn');
+    if (retryBtn) retryBtn.addEventListener('click', () => { delete favTeamsCache[favSelectedLeague]; loadFavTeams(); });
   }
 }
 
