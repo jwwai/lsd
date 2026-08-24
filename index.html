@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scoreboard — Live Scores, Schedules &amp; Results</title>
+<meta name="description" content="Live scores, upcoming schedules and results across major sports leagues.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2218%22 fill=%22%230A0D12%22/><circle cx=%2250%22 cy=%2250%22 r=%2210%22 fill=%22%23FF4136%22/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Teko:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="favoriteBar" class="fav-bar hidden">
+  <div class="fav-bar-inner">
+    <div class="fav-dot" id="favDot"></div>
+    <img id="favLogo" class="fav-logo" alt="">
+    <div class="fav-info">
+      <span class="fav-name" id="favName">—</span>
+      <span class="fav-detail" id="favDetail">No upcoming game found</span>
+    </div>
+    <div class="fav-score" id="favScore"></div>
+    <button class="fav-clear" id="favClear" title="Remove favorite team" aria-label="Remove favorite team">✕</button>
+  </div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">●</span>
+    <span class="brand-text">SCOREBOARD</span>
+  </div>
+  <button id="pickFavoriteBtn" class="btn-ghost">★ Set favorite team</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button class="tab active" data-tab="live">Live</button>
+  <button class="tab" data-tab="upcoming">Upcoming</button>
+  <button class="tab" data-tab="history">History</button>
+</nav>
+
+<div class="league-filter" id="leagueFilter"></div>
+
+<main id="main">
+  <div id="statusLine" class="status-line"></div>
+  <section id="gameGrid" class="game-grid"></section>
+</main>
+
+<!-- Game detail overlay -->
+<div id="detailOverlay" class="overlay hidden">
+  <div class="detail-panel">
+    <button id="closeDetail" class="detail-close" aria-label="Close">✕</button>
+    <div id="detailContent" class="detail-content">
+      <div class="loader">Loading game…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Favorite team picker overlay -->
+<div id="favOverlay" class="overlay hidden">
+  <div class="detail-panel fav-panel">
+    <button id="closeFavPicker" class="detail-close" aria-label="Close">✕</button>
+    <h2 class="fav-panel-title">Choose your team</h2>
+    <div class="fav-panel-sub">Pick a league, then search for your team.</div>
+    <div class="fav-league-select" id="favLeagueSelect"></div>
+    <input id="teamSearch" class="team-search" type="text" placeholder="Search teams…" autocomplete="off">
+    <div id="teamResults" class="team-results"></div>
+  </div>
+</div>
+
+<footer class="footer">
+  <span>Data via ESPN public scoreboard API · updates automatically</span>
+</footer>
+
+<script src="js/api.js"></script>
+<script src="js/favorites.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
