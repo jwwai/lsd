@@ -266,7 +266,47 @@ main{max-width:1100px;margin:0 auto;padding:14px 16px 60px;}
   color:var(--text-muted);
   font-family:'JetBrains Mono',monospace;
   font-size:13px;
+  line-height:1.6;
 }
+
+/* ---------- Leaderboard card (golf / racing) ---------- */
+.leaderboard-title{
+  font-size:14px;font-weight:700;margin-bottom:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.leaderboard-list{display:flex;flex-direction:column;gap:6px;}
+.leaderboard-row{
+  display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;
+  font-size:13px;
+}
+.lb-pos{color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:11px;}
+.lb-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lb-score{font-family:'Teko',sans-serif;font-size:18px;font-weight:600;color:var(--gold);}
+.leaderboard-detail-title{font-size:16px;font-weight:700;margin-bottom:10px;}
+.leaderboard-detail-table{margin-top:4px;}
+
+/* ---------- Standings ---------- */
+.standings-view{max-width:1100px;margin:0 auto;}
+.standings-view.hidden{display:none;}
+.standings-group{margin-bottom:24px;}
+.standings-group-title{
+  font-family:'Teko',sans-serif;font-size:22px;font-weight:600;
+  margin-bottom:8px;color:var(--text);
+}
+.standings-table{
+  width:100%;border-collapse:collapse;
+  font-family:'JetBrains Mono',monospace;font-size:12px;
+  background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;
+}
+.standings-table th, .standings-table td{
+  padding:8px 10px;text-align:center;border-bottom:1px solid var(--line);color:var(--text-muted);
+}
+.standings-table th{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);}
+.standings-table tr:last-child td{border-bottom:none;}
+.standings-table td:first-child, .standings-table th:first-child{text-align:left;}
+.standings-team-cell{display:flex;align-items:center;gap:8px;color:var(--text);font-weight:600;}
+.standings-rank{color:var(--text-muted);font-size:11px;width:16px;flex:0 0 auto;}
+.standings-logo{width:20px;height:20px;object-fit:contain;flex:0 0 auto;}
 
 /* ---------- Overlay / detail panel ---------- */
 .overlay{
@@ -384,6 +424,7 @@ button:focus-visible, .game-card:focus-visible, .chip:focus-visible, .league-car
   <button class="tab active" data-tab="live">Live</button>
   <button class="tab" data-tab="upcoming">Upcoming</button>
   <button class="tab" data-tab="history">History</button>
+  <button class="tab" data-tab="standings">Standings</button>
 </nav>
 
 <div class="league-rack-wrap" id="leagueRackWrap">
@@ -395,6 +436,7 @@ button:focus-visible, .game-card:focus-visible, .chip:focus-visible, .league-car
 <main id="main">
   <div id="statusLine" class="status-line"></div>
   <section id="gameGrid" class="game-grid"></section>
+  <section id="standingsView" class="standings-view hidden"></section>
 </main>
 
 <!-- Game detail overlay -->
@@ -444,6 +486,10 @@ const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports';
 // (league slugs verified against ESPN's public site.api.espn.com routes)
 // icon/desc/color drive the league-picker rack — icons are generic custom
 // glyphs (not official league marks, which are trademarked).
+// format: 'match' (default, team/player-vs-team/player with a single score) |
+//         'tennis' (a scoreboard "event" is a whole tournament containing many
+//          matches nested in groupings[].competitions[]) |
+//         'leaderboard' (golf/racing — one event has MANY entrants, not two)
 const LEAGUES = [
   // --- Major North American leagues ---
   { id: 'nfl',      sport: 'football',   league: 'nfl',                    name: 'NFL',              short: 'NFL',    desc: 'American Football',           icon: 'football',   color: '#3DDC84' },
@@ -458,10 +504,22 @@ const LEAGUES = [
   { id: 'usa.1',    sport: 'soccer',     league: 'usa.1',                  name: 'MLS',              short: 'MLS',    desc: 'Major League Soccer (US)',     icon: 'soccer',     color: '#34D8C7' },
   // --- College ---
   { id: 'mens-college-basketball', sport: 'basketball', league: 'mens-college-basketball', name: 'NCAA Basketball (M)', short: 'NCAAB', desc: "NCAA Men's Basketball", icon: 'basketball', color: '#FF9F45' },
+  // --- Tennis (each scoreboard "event" is a tournament containing many
+  //     matches — normalized/flattened separately, see normalizeTennisMatch) ---
+  { id: 'tennis-atp', sport: 'tennis', league: 'atp',                      name: 'Tennis — ATP',     short: 'ATP',    desc: "Men's Tennis Tour",            icon: 'tennis',     color: '#D6E85A', format: 'tennis' },
+  { id: 'tennis-wta', sport: 'tennis', league: 'wta',                      name: 'Tennis — WTA',     short: 'WTA',    desc: "Women's Tennis Tour",          icon: 'tennis',     color: '#D6E85A', format: 'tennis' },
+  // --- Golf (leaderboard of many players, not head-to-head) ---
+  { id: 'golf-pga',  sport: 'golf', league: 'pga',                         name: 'Golf — PGA Tour',  short: 'PGA',    desc: 'PGA Tour',                     icon: 'golf',       color: '#7FE0A0', format: 'leaderboard' },
+  { id: 'golf-lpga', sport: 'golf', league: 'lpga',                        name: 'Golf — LPGA',      short: 'LPGA',   desc: 'LPGA Tour',                    icon: 'golf',       color: '#7FE0A0', format: 'leaderboard' },
+  // --- NASCAR (leaderboard of drivers, not head-to-head) ---
+  { id: 'nascar-cup', sport: 'racing', league: 'nascar-premier',           name: 'NASCAR Cup Series', short: 'NASCAR', desc: 'NASCAR Cup Series',           icon: 'racing',     color: '#FF7A59', format: 'leaderboard' },
   // --- Cricket (ESPN's cricket scoreboard is series-based; these slugs
-  //     only return events while that series/tournament is actually live) ---
+  //     only return events while that series/tournament is actually live.
+  //     "ipl" and "icc.t20" are live-verified; "icc.cricket.world.cup"
+  //     follows the same icc.* pattern but is best-effort/unverified.) ---
   { id: 'cricket-ipl', sport: 'cricket', league: 'ipl',                    name: 'Cricket — IPL',    short: 'IPL',    desc: 'Indian Premier League',        icon: 'cricket',    color: '#B98CFF' },
   { id: 'cricket-t20wc', sport: 'cricket', league: 'icc.t20',              name: 'Cricket — T20 World Cup', short: 'T20 WC', desc: 'ICC T20 World Cup',    icon: 'cricket',    color: '#B98CFF' },
+  { id: 'cricket-odiwc', sport: 'cricket', league: 'icc.cricket.world.cup', name: 'Cricket — ODI World Cup', short: 'ODI WC', desc: 'ICC Cricket World Cup', icon: 'cricket',   color: '#B98CFF' },
   // --- Hockey (ice) at the Olympics ---
   { id: 'oly-hockey-m', sport: 'hockey', league: 'mens-olympic-hockey',    name: "Olympics — Men's Hockey", short: 'OLY HKY (M)', desc: 'Olympic Ice Hockey (M)', icon: 'trophy', color: '#E8B84B' },
   { id: 'oly-hockey-w', sport: 'hockey', league: 'womens-olympic-hockey',  name: "Olympics — Women's Hockey", short: 'OLY HKY (W)', desc: 'Olympic Ice Hockey (W)', icon: 'trophy', color: '#E8B84B' },
@@ -482,6 +540,9 @@ const SPORT_ICONS = {
   soccer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.2l3 2.2-1.1 3.6H10.1L9 9.4z"/><path d="M12 7.2V4.3M15 9.4l2.9-1.1M9 9.4l-2.9-1.1M13.9 12.6l1.8 2.7h3M10.1 12.6l-1.8 2.7h-3"/></svg>',
   cricket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="18.5" x2="13.5" y2="11"/><rect x="12.3" y="4.6" width="3" height="7.4" rx="1.2" transform="rotate(45 13.8 8.3)"/><circle cx="18.3" cy="18.3" r="2.1"/></svg>',
   trophy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.3h10v3.8a5 5 0 0 1-10 0V3.3z"/><path d="M7 4.4H4.3a3 3 0 0 0 3 4.6M17 4.4h2.7a3 3 0 0 1-3 4.6"/><path d="M12 11.7v3.6"/><path d="M9 20h6"/><path d="M9.8 20c0-1.7.7-2.3 2.2-2.8 1.5-.5 2.2-1.1 2.2-2.8"/></svg>',
+  tennis: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M4.3 8.3c3 2 9.4 2 15.4 0M4.3 15.7c3-2 9.4-2 15.4 0"/></svg>',
+  golf: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="21" x2="7" y2="3"/><path d="M7 3.5l9 3.3-9 3.3z" fill="currentColor" fill-opacity="0.25"/><ellipse cx="7" cy="21" rx="5" ry="1.3" opacity="0.5"/></svg>',
+  racing: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="10" rx="1.2"/><path d="M4 6.5h4v2H8v2H4M12 6.5h4v2h-4v2h4M20 6.5v5" opacity="0.7"/><circle cx="7" cy="18.5" r="1.6"/><circle cx="17" cy="18.5" r="1.6"/><path d="M8.4 17.5h7.2"/></svg>',
 };
 
 function leagueById(id) {
@@ -574,6 +635,7 @@ function normalizeEvent(raw, lg) {
     leagueId: lg.id,
     leagueName: lg.name,
     leagueShort: lg.short,
+    format: 'match',
     name: raw.name || raw.shortName,
     date: raw.date,
     state,                                   // pre | in | post
@@ -587,18 +649,118 @@ function normalizeEvent(raw, lg) {
   };
 }
 
+/** Normalize a golf/racing "leaderboard" event — one tournament/race with MANY
+ *  entrants rather than two competitors. Used for format:'leaderboard' leagues. */
+function normalizeLeaderboardEvent(raw, lg) {
+  const comp = raw.competitions && raw.competitions[0];
+  if (!comp) return null;
+  const status = comp.status || raw.status || {};
+  const state = status.type ? status.type.state : 'pre';
+  const competitors = comp.competitors || [];
+
+  const leaders = competitors.map(c => ({
+    id: c.id,
+    order: c.order,
+    name: c.athlete ? (c.athlete.shortName || c.athlete.displayName) : 'TBD',
+    fullName: c.athlete ? c.athlete.displayName : 'TBD',
+    flag: c.athlete && c.athlete.flag && c.athlete.flag.href,
+    score: c.score,          // golf: relative-to-par string like "E"/"-5"; nascar: usually absent
+    winner: !!c.winner,
+  })).sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  return {
+    id: raw.id,
+    leagueId: lg.id,
+    leagueName: lg.name,
+    leagueShort: lg.short,
+    format: 'leaderboard',
+    name: raw.name || raw.shortName,
+    date: raw.date,
+    state,
+    statusDetail: status.type ? status.type.shortDetail : '',
+    statusName: status.type ? status.type.name : '',
+    venue: comp.venue && comp.venue.fullName,
+    leaders,
+  };
+}
+
+/** Flatten one tennis "event" (a tournament) into individual match objects —
+ *  tennis nests matches under groupings[].competitions[] rather than
+ *  exposing a single top-level competitions[0] like team sports do. */
+function normalizeTennisEvent(raw, lg) {
+  const out = [];
+  const groupings = raw.groupings || [];
+  groupings.forEach(g => {
+    const groupName = g.grouping && g.grouping.displayName;
+    (g.competitions || []).forEach(comp => {
+      const competitors = comp.competitors || [];
+      const home = competitors.find(c => c.homeAway === 'home') || competitors[0];
+      const away = competitors.find(c => c.homeAway === 'away') || competitors[1];
+      const status = comp.status || {};
+      const state = status.type ? status.type.state : 'pre';
+
+      const mapPlayer = (c) => {
+        if (!c) return null;
+        const sets = c.linescores || [];
+        const setsWon = sets.filter(s => s.winner).length;
+        return {
+          id: c.id,
+          name: c.athlete ? (c.athlete.shortName || c.athlete.displayName) : 'TBD',
+          fullName: c.athlete ? c.athlete.displayName : 'TBD',
+          logo: c.athlete && c.athlete.flag && c.athlete.flag.href,
+          score: sets.length ? String(setsWon) : null, // sets won, for the compact card
+          winner: !!c.winner,
+          record: '',
+          sets,
+        };
+      };
+
+      out.push({
+        id: comp.id,
+        leagueId: lg.id,
+        leagueName: lg.name,
+        leagueShort: lg.short,
+        format: 'tennis',
+        name: `${(away && away.athlete && away.athlete.shortName) || 'TBD'} vs ${(home && home.athlete && home.athlete.shortName) || 'TBD'}`,
+        tournamentName: raw.shortName || raw.name,
+        groupName,
+        round: comp.round && comp.round.displayName,
+        date: comp.date || raw.date,
+        state,
+        statusDetail: status.type ? status.type.shortDetail : '',
+        statusName: status.type ? status.type.name : '',
+        venue: comp.venue && (comp.venue.fullName + (comp.venue.court ? ' · ' + comp.venue.court : '')),
+        home: mapPlayer(home),
+        away: mapPlayer(away),
+      });
+    });
+  });
+  return out;
+}
+
+/** Normalize a raw ESPN events[] array according to the league's format. */
+function normalizeRawEvents(rawEvents, lg) {
+  if (lg.format === 'leaderboard') {
+    return rawEvents.map(e => normalizeLeaderboardEvent(e, lg)).filter(Boolean);
+  }
+  if (lg.format === 'tennis') {
+    return rawEvents.flatMap(e => normalizeTennisEvent(e, lg));
+  }
+  return rawEvents.map(e => normalizeEvent(e, lg));
+}
+
 /** Fetch + normalize a scoreboard for one league on one date (optional). */
 async function getLeagueScoreboard(leagueId, dateStr) {
   const lg = leagueById(leagueId);
   const data = await fetchJson(scoreboardUrl(lg, dateStr));
   const events = data.events || [];
-  return events.map(e => normalizeEvent(e, lg));
+  return normalizeRawEvents(events, lg);
 }
 
 /** Fetch a scoreboard across ALL configured leagues for a single date (or "today" if omitted). Failures in one league don't kill the rest. */
 async function getAllLeaguesScoreboard(dateStr) {
   const results = await Promise.allSettled(
-    LEAGUES.map(lg => fetchJson(scoreboardUrl(lg, dateStr)).then(data => (data.events || []).map(e => normalizeEvent(e, lg))))
+    LEAGUES.map(lg => fetchJson(scoreboardUrl(lg, dateStr)).then(data => normalizeRawEvents(data.events || [], lg)))
   );
   let all = [];
   results.forEach(r => { if (r.status === 'fulfilled') all = all.concat(r.value); });
@@ -664,6 +826,52 @@ async function getTeamSchedule(leagueId, teamId) {
   const data = await fetchJson(teamScheduleUrl(lg, teamId));
   const events = data.events || [];
   return events.map(e => normalizeEvent(e, lg));
+}
+
+/** Standings live under /apis/v2/ (not /apis/site/v2/, which returns an empty stub for this resource). */
+function standingsUrl(lg) {
+  return `${ESPN_BASE.replace('/apis/site/v2/sports', '/apis/v2/sports')}/${lg.sport}/${lg.league}/standings`;
+}
+
+/** Fetch + normalize a league's standings into a flat list of groups (conference/division/table),
+ *  each with an ordered list of team rows and whichever stat columns ESPN provided for that sport.
+ *  Not meaningful for individual/leaderboard sports (tennis, golf, racing) — callers should check
+ *  the league's format before calling this. */
+async function getStandings(leagueId) {
+  const lg = leagueById(leagueId);
+  const data = await fetchJson(standingsUrl(lg));
+
+  // Common column set we look for across sports; only columns that are
+  // actually present in the data get rendered (see buildStandingsTable).
+  const WANTED_STATS = ['wins', 'losses', 'ties', 'otlosses', 'winpercent', 'points', 'gamesbehind'];
+
+  function extractGroup(node) {
+    const entries = (node.standings && node.standings.entries) || [];
+    const rows = entries.map(entry => {
+      const statsByType = {};
+      (entry.stats || []).forEach(s => { statsByType[s.type] = s; });
+      return {
+        team: {
+          id: entry.team.id,
+          name: entry.team.shortDisplayName || entry.team.displayName,
+          abbrev: entry.team.abbreviation,
+          logo: entry.team.logos && entry.team.logos[0] && entry.team.logos[0].href,
+        },
+        stats: WANTED_STATS
+          .filter(t => statsByType[t])
+          .map(t => ({ type: t, label: statsByType[t].shortDisplayName || statsByType[t].abbreviation, value: statsByType[t].displayValue })),
+      };
+    });
+    return { name: node.name || node.abbreviation || 'Standings', rows };
+  }
+
+  if (Array.isArray(data.children) && data.children.length) {
+    return data.children.map(extractGroup).filter(g => g.rows.length);
+  }
+  if (data.standings) {
+    return [extractGroup(data)].filter(g => g.rows.length);
+  }
+  return [];
 }
 
 
@@ -916,8 +1124,28 @@ async function loadTab() {
   grid.innerHTML = '';
 
   const lgId = state.selectedLeague;
+  const lg = leagueById(lgId) || {};
 
   try {
+    if (state.tab === 'standings') {
+      grid.style.display = 'none';
+      let standingsEl = document.getElementById('standingsView');
+      standingsEl.classList.remove('hidden');
+      if (lg.format === 'leaderboard' || lg.format === 'tennis') {
+        standingsEl.innerHTML = `<div class="empty-state">Standings aren't available for ${escapeHtml(lg.name || 'this')} — it's scored individually rather than as team-vs-team, so there's no conference/division table.</div>`;
+        statusLine.textContent = '';
+        state.loading = false;
+        return;
+      }
+      const groups = await getStandings(lgId);
+      renderStandings(groups);
+      statusLine.textContent = `${lg.name || lgId} standings · updated ${new Date().toLocaleTimeString()}`;
+      state.loading = false;
+      return;
+    }
+    document.getElementById('standingsView').classList.add('hidden');
+    grid.style.display = '';
+
     if (state.tab === 'live') {
       state.events = (await getLeagueScoreboard(lgId)).filter(e => e.state === 'in');
       refreshTimer = setInterval(async () => {
@@ -942,9 +1170,13 @@ async function loadTab() {
   } catch (err) {
     console.error('loadTab failed:', err);
     statusLine.textContent = `Could not load data: ${err.message || 'unknown error'}`;
+    if (state.tab === 'standings') {
+      const standingsEl = document.getElementById('standingsView');
+      if (standingsEl) standingsEl.innerHTML = `<div class="empty-state">Could not load standings: ${escapeHtml(err.message || 'unknown error')}</div>`;
+    }
   }
   state.loading = false;
-  renderGrid();
+  if (state.tab !== 'standings') renderGrid();
 }
 
 // ---------------------------------------------------------------- grid
@@ -969,6 +1201,11 @@ function emptyMessage() {
 }
 
 function buildGameCard(ev, fav) {
+  if (ev.format === 'leaderboard') return buildLeaderboardCard(ev, fav);
+  return buildMatchCard(ev, fav);
+}
+
+function buildMatchCard(ev, fav) {
   const card = document.createElement('div');
   card.className = 'game-card' + (isFavGame(ev, fav) ? ' is-favorite' : '');
   card.tabIndex = 0;
@@ -991,7 +1228,50 @@ function buildGameCard(ev, fav) {
   const bottom = document.createElement('div');
   bottom.className = 'card-bottom';
   const left = ev.state === 'in' ? (ev.statusDetail || 'In progress') : formatWhen(ev);
-  bottom.innerHTML = `<span>${left}</span><span>${ev.venue ? escapeHtml(ev.venue) : ''}</span>`;
+  const right = ev.format === 'tennis' ? (ev.round || ev.groupName || '') : (ev.venue || '');
+  bottom.innerHTML = `<span>${left}</span><span>${escapeHtml(right)}</span>`;
+  card.appendChild(bottom);
+
+  return card;
+}
+
+/** Card for golf/racing — a leaderboard of many entrants rather than two competitors. */
+function buildLeaderboardCard(ev, fav) {
+  const card = document.createElement('div');
+  card.className = 'game-card leaderboard-card';
+  card.tabIndex = 0;
+  card.addEventListener('click', () => openGameDetail(ev.leagueId, ev.id));
+  card.addEventListener('keydown', (e) => { if (e.key === 'Enter') openGameDetail(ev.leagueId, ev.id); });
+
+  const top = document.createElement('div');
+  top.className = 'card-top';
+  const pill = ev.state === 'in' ? 'live' : (ev.state === 'pre' ? 'pre' : 'post');
+  const pillText = ev.state === 'in' ? 'LIVE' : (ev.state === 'pre' ? 'UPCOMING' : 'FINAL');
+  top.innerHTML = `<span>${ev.leagueShort}</span><span class="status-pill ${pill}">${pillText}</span>`;
+  card.appendChild(top);
+
+  const title = document.createElement('div');
+  title.className = 'leaderboard-title';
+  title.textContent = ev.name || '';
+  card.appendChild(title);
+
+  const list = document.createElement('div');
+  list.className = 'leaderboard-list';
+  const top5 = (ev.leaders || []).slice(0, 5);
+  top5.forEach((l, i) => {
+    const row = document.createElement('div');
+    row.className = 'leaderboard-row';
+    const scoreText = l.score != null ? l.score : (l.winner ? 'P1' : '');
+    row.innerHTML = `<span class="lb-pos">${i + 1}</span><span class="lb-name">${escapeHtml(l.name)}</span><span class="lb-score">${escapeHtml(String(scoreText))}</span>`;
+    list.appendChild(row);
+  });
+  card.appendChild(list);
+
+  const bottom = document.createElement('div');
+  bottom.className = 'card-bottom';
+  const left = ev.state === 'in' ? (ev.statusDetail || 'In progress') : formatWhen(ev);
+  const more = (ev.leaders || []).length > 5 ? `+${ev.leaders.length - 5} more` : '';
+  bottom.innerHTML = `<span>${left}</span><span>${more}</span>`;
   card.appendChild(bottom);
 
   return card;
@@ -1044,12 +1324,120 @@ async function openGameDetail(leagueId, eventId) {
   overlay.classList.remove('hidden');
   content.innerHTML = '<div class="loader">Loading game…</div>';
 
+  const lg = leagueById(leagueId) || {};
+
+  // Golf/racing/tennis: ESPN's generic summary endpoint isn't verified for
+  // these shapes, and we already have everything we need in state.events —
+  // render straight from the already-normalized event instead of a 2nd fetch.
+  if (lg.format === 'leaderboard' || lg.format === 'tennis') {
+    const ev = state.events.find(e => String(e.id) === String(eventId));
+    if (!ev) {
+      content.innerHTML = '<div class="loader">Could not find this event.</div>';
+      return;
+    }
+    content.innerHTML = lg.format === 'leaderboard' ? renderLeaderboardDetailHtml(ev) : renderTennisDetailHtml(ev);
+    return;
+  }
+
   try {
     const data = await getEventSummary(leagueId, eventId);
     content.innerHTML = renderDetailHtml(data, leagueId);
   } catch (e) {
     content.innerHTML = '<div class="loader">Could not load game details.</div>';
   }
+}
+
+function renderLeaderboardDetailHtml(ev) {
+  const lg = leagueById(ev.leagueId);
+  const rows = (ev.leaders || []).map((l, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${escapeHtml(l.name)}</td>
+      <td>${escapeHtml(l.score != null ? String(l.score) : (l.winner ? 'Winner' : '—'))}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="detail-league">${escapeHtml(lg ? lg.name : '')}</div>
+    <div class="detail-status ${ev.state}">${ev.state === 'in' ? '● LIVE — ' : ''}${escapeHtml(ev.statusDetail || '')}</div>
+    <div class="leaderboard-detail-title">${escapeHtml(ev.name || '')}</div>
+    <table class="linescore-table leaderboard-detail-table">
+      <thead><tr><th>#</th><th>Name</th><th>Score</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="detail-meta">
+      ${ev.date ? `<div>${escapeHtml(new Date(ev.date).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>` : ''}
+      ${ev.venue ? `<div class="detail-venue">${escapeHtml(ev.venue)}</div>` : ''}
+    </div>
+  `;
+}
+
+function renderTennisDetailHtml(ev) {
+  const lg = leagueById(ev.leagueId);
+  const playerBlock = (p) => p ? `
+    <div class="detail-team">
+      <div class="detail-team-id">
+        <img class="detail-logo" src="${p.logo || ''}" alt="" onerror="this.style.visibility='hidden'">
+        <div>
+          <div class="detail-team-name">${escapeHtml(p.fullName || p.name || 'TBD')}</div>
+        </div>
+      </div>
+      <div class="detail-score">${p.score != null ? escapeHtml(p.score) : ''}</div>
+    </div>` : '';
+
+  let setsHtml = '';
+  const homeSets = (ev.home && ev.home.sets) || [];
+  const awaySets = (ev.away && ev.away.sets) || [];
+  if (homeSets.length && awaySets.length) {
+    let headCells = '<th>Player</th>';
+    for (let i = 1; i <= homeSets.length; i++) headCells += `<th>Set ${i}</th>`;
+    const rowFor = (p, sets) => {
+      let cells = `<td>${escapeHtml((p && (p.name || p.fullName)) || '')}</td>`;
+      sets.forEach(s => { cells += `<td>${s.value != null ? s.value : '-'}${s.tiebreak != null ? ' <sup>' + s.tiebreak + '</sup>' : ''}</td>`; });
+      return `<tr>${cells}</tr>`;
+    };
+    setsHtml = `<table class="linescore-table"><thead><tr>${headCells}</tr></thead><tbody>${rowFor(ev.away, awaySets)}${rowFor(ev.home, homeSets)}</tbody></table>`;
+  }
+
+  return `
+    <div class="detail-league">${escapeHtml((lg ? lg.name : '') + (ev.tournamentName ? ' — ' + ev.tournamentName : ''))}</div>
+    <div class="detail-status ${ev.state}">${ev.state === 'in' ? '● LIVE — ' : ''}${escapeHtml(ev.statusDetail || '')}${ev.round ? ' · ' + escapeHtml(ev.round) : ''}</div>
+    <div class="detail-matchup">
+      ${playerBlock(ev.away)}
+      ${playerBlock(ev.home)}
+    </div>
+    ${setsHtml}
+    <div class="detail-meta">
+      ${ev.date ? `<div>${escapeHtml(new Date(ev.date).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}</div>` : ''}
+      ${ev.venue ? `<div class="detail-venue">${escapeHtml(ev.venue)}</div>` : ''}
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------- standings
+function renderStandings(groups) {
+  const el = document.getElementById('standingsView');
+  if (!groups || !groups.length) {
+    el.innerHTML = '<div class="empty-state">No standings available right now.</div>';
+    return;
+  }
+  el.innerHTML = groups.map(g => {
+    const cols = (g.rows[0] && g.rows[0].stats) || [];
+    const headCells = '<th>Team</th>' + cols.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
+    const rows = g.rows.map((r, i) => {
+      const cells = `
+        <td class="standings-team-cell">
+          <span class="standings-rank">${i + 1}</span>
+          <img class="standings-logo" src="${r.team.logo || ''}" alt="" onerror="this.style.visibility='hidden'">
+          <span>${escapeHtml(r.team.name)}</span>
+        </td>` + r.stats.map(s => `<td>${escapeHtml(s.value)}</td>`).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+    return `
+      <div class="standings-group">
+        <div class="standings-group-title">${escapeHtml(g.name)}</div>
+        <table class="standings-table"><thead><tr>${headCells}</tr></thead><tbody>${rows}</tbody></table>
+      </div>`;
+  }).join('');
 }
 
 function renderDetailHtml(data, leagueId) {
