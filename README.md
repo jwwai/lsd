@@ -37,28 +37,27 @@ will work the same way.
 
 ```
 sports-live/
-├── index.html          # page shell, tabs, overlays
-├── css/style.css        # styling (design tokens at the top of the file)
-├── js/api.js             # ESPN endpoint wrapper + data normalization
-├── js/favorites.js       # favorite team storage + ticker bar rendering
-├── js/app.js              # tabs, grid rendering, detail view, team picker
+├── index.html   # everything — markup, styles, and JS, all in one file
 └── README.md
 ```
 
-No build step, no `npm install`, no bundler — just static files.
+Everything is inlined into a single `index.html` (styles in a `<style>` tag,
+logic in a `<script>` tag) on purpose: it means there are no relative paths
+to break and nothing else to deploy — just this one file works anywhere you
+put it, including opened directly from disk.
+
+No build step, no `npm install`, no bundler.
 
 ## Run locally
 
-Any static file server works, e.g.:
+Just open `index.html` in a browser (double-click it, or drag it into a
+browser tab). A local server also works if you prefer:
 
 ```bash
 cd sports-live
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
-
-(Opening `index.html` directly via `file://` may be blocked by the browser's
-fetch/CORS handling for local files — use a local server instead.)
 
 ## Deploy to GitHub Pages
 
