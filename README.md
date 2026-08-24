@@ -11,11 +11,16 @@ directly from the browser. These are the same read-only endpoints ESPN's own
 site/app use, they're free, and they don't require a signup, token, or key.
 There is no backend or serverless function — everything runs client-side.
 
-Coverage is defined in `js/api.js` (`LEAGUES` array): NFL, NBA, MLB, NHL,
-Premier League, Champions League, La Liga, MLS, and NCAA Men's Basketball.
-Add or remove leagues by editing that list — any league ESPN publishes a
-scoreboard for (`site.api.espn.com/apis/site/v2/sports/{sport}/{league}`)
-will work the same way.
+Coverage is defined in the `LEAGUES` array near the top of the `<script>`
+block: NFL, NBA, WNBA, MLB, NHL, Premier League, Champions League, La Liga,
+MLS, NCAA Men's Basketball, cricket (IPL, T20 World Cup), and Olympics
+basketball/hockey/soccer. Add or remove leagues by editing that array — any
+league ESPN publishes a scoreboard for
+(`site.api.espn.com/apis/site/v2/sports/{sport}/{league}`) works the same way.
+
+**Note on cricket & Olympics:** these are tournament/series-based rather than
+year-round leagues, so their scoreboards will legitimately show "no games"
+outside an active series or the Games window — that's expected, not a bug.
 
 > ESPN doesn't publish or version these endpoints officially, so treat them as
 > "public but unofficial." If ESPN changes them, only `js/api.js` needs updating
@@ -77,6 +82,22 @@ python3 -m http.server 8000
    `https://<your-username>.github.io/<repo-name>/` within a minute or two.
 
 That's it — no secrets, no environment variables, no server to manage.
+
+## Troubleshooting favorite team selection
+
+If the team list won't load when you tap **★ Set favorite team**, the app now
+shows the actual error instead of hanging silently, with a **Try again**
+button. Common causes:
+
+- **Ad blocker / privacy extension** — some block any domain that looks
+  like `api.*`, which can catch `site.api.espn.com`. Try disabling it for
+  this page, or test in a private/incognito window with extensions off.
+- **Slow response** — the request times out after 12s and offers a retry.
+- **Offline** — check your connection.
+
+If it still fails, open your browser's dev tools console (F12) — any error
+logged there starting with "Failed to load teams" will show the underlying
+cause.
 
 ## Notes & limitations
 
