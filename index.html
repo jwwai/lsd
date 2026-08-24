@@ -509,23 +509,36 @@ function teamScheduleUrl(lg, teamId, season) {
 }
 
 async function fetchJson(url, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs || 12000);
-  try {
-    const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
-    if (!res.ok) throw new Error(`ESPN returned ${res.status} ${res.statusText}`);
-    return await res.json();
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out — ESPN may be slow or the request is being blocked (try disabling ad blockers/privacy extensions for this site).');
+  const attempt = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 12000);
+    try {
+      const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
+      if (!res.ok) throw new Error(`ESPN returned ${res.status} ${res.statusText}`);
+      return await res.json();
+    } finally {
+      clearTimeout(timer);
     }
-    // A generic "Failed to fetch" almost always means CORS, an offline
-    // connection, or a browser extension blocking the request.
-    throw new Error(err.message === 'Failed to fetch'
-      ? 'Could not reach ESPN — check your connection, or an ad blocker/privacy extension may be blocking site.api.espn.com.'
-      : err.message);
-  } finally {
-    clearTimeout(timer);
+  };
+
+  try {
+    return await attempt();
+  } catch (firstErr) {
+    // ESPN's endpoints are unofficial and occasionally flaky — one silent
+    // retry clears up most transient blips before we bother the user.
+    try {
+      await new Promise(r => setTimeout(r, 500));
+      return await attempt();
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out — ESPN may be slow or the request is being blocked (try disabling ad blockers/privacy extensions for this site).');
+      }
+      // A generic "Failed to fetch" almost always means CORS, an offline
+      // connection, or a browser extension blocking the request.
+      throw new Error(err.message === 'Failed to fetch'
+        ? 'Could not reach ESPN — check your connection, or an ad blocker/privacy extension may be blocking site.api.espn.com.'
+        : err.message);
+    }
   }
 }
 
@@ -592,7 +605,8 @@ async function getAllLeaguesScoreboard(dateStr) {
   return all;
 }
 
-/** Pull a window of dates (for History / Upcoming) across all leagues. dayOffsets e.g. [-1,-2,-3] or [1,2,3]. */
+/** Pull a window of dates (for History / Upcoming) across all leagues. dayOffsets e.g. [-1,-2,-3] or [1,2,3].
+ *  Uses allSettled so one flaky date/league doesn't take down the whole result — only throws if EVERY request failed. */
 async function getAllLeaguesForDays(dayOffsets) {
   const today = new Date();
   const dateStrs = dayOffsets.map(off => {
@@ -600,11 +614,17 @@ async function getAllLeaguesForDays(dayOffsets) {
     d.setDate(d.getDate() + off);
     return fmtDate(d);
   });
-  const batches = await Promise.all(dateStrs.map(ds => getAllLeaguesScoreboard(ds)));
-  return batches.flat();
+  const results = await Promise.allSettled(dateStrs.map(ds => getAllLeaguesScoreboard(ds)));
+  const fulfilled = results.filter(r => r.status === 'fulfilled');
+  if (!fulfilled.length && results.length) {
+    throw results[0].reason || new Error('All requests failed.');
+  }
+  results.forEach(r => { if (r.status === 'rejected') console.warn('getAllLeaguesForDays: one date request failed, continuing with the rest:', r.reason); });
+  return fulfilled.flatMap(r => r.value);
 }
 
-/** Pull a window of dates for a SINGLE league (used by the league-rack single-select filter). */
+/** Pull a window of dates for a SINGLE league (used by the league-rack single-select filter).
+ *  Uses allSettled so one flaky date doesn't take down the whole result — only throws if EVERY request failed. */
 async function getLeagueForDays(leagueId, dayOffsets) {
   const today = new Date();
   const dateStrs = dayOffsets.map(off => {
@@ -612,8 +632,13 @@ async function getLeagueForDays(leagueId, dayOffsets) {
     d.setDate(d.getDate() + off);
     return fmtDate(d);
   });
-  const batches = await Promise.all(dateStrs.map(ds => getLeagueScoreboard(leagueId, ds)));
-  return batches.flat();
+  const results = await Promise.allSettled(dateStrs.map(ds => getLeagueScoreboard(leagueId, ds)));
+  const fulfilled = results.filter(r => r.status === 'fulfilled');
+  if (!fulfilled.length && results.length) {
+    throw results[0].reason || new Error('All requests failed.');
+  }
+  results.forEach(r => { if (r.status === 'rejected') console.warn('getLeagueForDays: one date request failed, continuing with the rest:', r.reason); });
+  return fulfilled.flatMap(r => r.value);
 }
 
 async function getEventSummary(leagueId, eventId) {
@@ -915,7 +940,8 @@ async function loadTab() {
     const lgName = (leagueById(lgId) || {}).name || lgId;
     statusLine.textContent = `${lgName} · last updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {
-    statusLine.textContent = 'Could not load data — check your connection and try again.';
+    console.error('loadTab failed:', err);
+    statusLine.textContent = `Could not load data: ${err.message || 'unknown error'}`;
   }
   state.loading = false;
   renderGrid();
